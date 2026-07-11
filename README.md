@@ -500,7 +500,7 @@ curl -s -o /dev/null -w "%{http_code}" https://bme.esn.hu
 ### Login shortcut
 
 ```bash
-ssh webmaster@YOUR_AZURE_IP
+ssh webmaster@@20.82.118.251
 sudo su - esn-hungary
 cd /home/esn-hungary/htdocs/new-hungary.esn.hu
 ```
