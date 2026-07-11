@@ -1,0 +1,194 @@
+# ESN Hungary Drupal Multisite — Handoff Prompt for Claude
+
+Copy and paste everything below this line into Claude when you need help.
+
+---
+
+I am managing a Drupal 10 multisite setup for ESN Hungary. Here is everything you need to know:
+
+## Server
+- Azure VM, Ubuntu 24, CloudPanel panel, PHP 8.3, Percona MySQL 8.4
+- SSH as `webmaster`, then `sudo su - esn-hungary` for Drupal/composer work
+- Codebase path: `/home/esn-hungary/htdocs/new-hungary.esn.hu/`
+- DNS managed in Cloudflare — all 14 domains are proxied (orange cloud), so Let's Encrypt SSL validation fails. Section sites use self-signed certs which work fine because Cloudflare handles SSL for visitors. SSL mode is set to Full in Cloudflare.
+- Scripts directory: `/home/webmaster/scripts/`
+
+## Architecture
+One Drupal 10.6.12 codebase serves 14 sites. All section sites have their nginx `root` pointing to the main codebase at `/home/esn-hungary/htdocs/new-hungary.esn.hu/web`. Each site has its own database, settings.php, files directory, and private directory.
+
+## All 14 Sites
+
+| Domain | CloudPanel User | Database | DB User | Admin User |
+|--------|-----------------|----------|---------|------------|
+| new-hungary.esn.hu | esn-hungary | HungaryDb | HungaryDbUser | hungary_admin |
+| new-bme.esn.hu | esn-new-bme | BmeDb | BmeDbUser | bme_admin |
+| new-corvinus.esn.hu | esn-new-corvinus | CorvinusDb | CorvinusDbUser | corvinus_admin |
+| new-debrecen.esn.hu | esn-new-debrecen | DebrecenDb | DebrecenDbUser | debrecen_admin |
+| new-elte.esn.hu | esn-new-elte | ElteDb | ElteDbUser | elte_admin |
+| new-eszterhazy.esn.hu | esn-new-eszterhazy | EszterhazyDb | EszterhazyDbUser | eszterhazy_admin |
+| new-ibs.esn.hu | esn-new-ibs | IbsDb | IbsDbUser | ibs_admin |
+| mate.esn.hu | esn-mate | MateDb | MateDbUser | mate_admin |
+| new-miskolc.esn.hu | esn-new-miskolc | MiskolcDb | MiskolcDbUser | miskolc_admin |
+| new-obuda.esn.hu | esn-new-obuda | ObudaDb | ObudaDbUser | obuda_admin |
+| new-pecs.esn.hu | esn-new-pecs | PecsDb | PecsDbUser | pecs_admin |
+| semmelweis.esn.hu | esn-semmelweis | SemmelweisDb | SemmelweisDbUser | semmelweis_admin |
+| new-szeged.esn.hu | esn-new-szeged | SzegedDb | SzegedDbUser | szeged_admin |
+| lups.esn.hu | esn-lups | LupsDb | LupsDbUser | lups_admin |
+
+## Critical Constraints — Never Break These
+- **Drupal core is locked to `~10.6.3`** by the Satellite profile (`esn/satellite-profile 5.1.1`). Do not update Drupal core until a new Satellite version supports it. Security coverage ends December 2026.
+- **Radix theme must stay at `^5.0`**. Radix 6.x breaks every page with a 503 error because the Satellite theme templates reference `@radix/form/input.twig` which doesn't exist in Radix 6. Drupal will show an "unsupported release" warning — ignore it.
+- **Never use the Drupal admin UI updater**. It partially downloads files and corrupts the codebase. Always update via `composer update` in the terminal.
+- **Never edit `web/sites/*/settings.php` directly**. Always edit `scaffold/*.settings.php` then run `composer drupal:scaffold`. Settings files need `sudo chmod u+w` before scaffold can overwrite them.
+
+## Scaffold System
+Settings files are managed via a scaffold system:
+- Source files: `scaffold/*.settings.php` (one per site)
+- Pushed to `web/sites/*/settings.php` via `composer drupal:scaffold`
+- `sites.php` source is at `scaffold/sites.php`
+- To update a settings file:
+  1. `sudo chmod u+w web/sites/DOMAIN/settings.php`
+  2. Edit `scaffold/DOMAIN.settings.php`
+  3. `composer drupal:scaffold`
+  4. `vendor/bin/drush --uri=https://DOMAIN cr`
+
+## File Permissions Important Notes
+- After any `composer update`, new files may be created as `rw-rw----` (no world-readable). Section site PHP-FPM workers run as different users (e.g. `esn-mate`) and can't read them, causing 500 errors.
+- Fix with: `find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type f -exec chmod o+r {} \;` and `find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type d -exec chmod o+rx {} \;`
+- After `composer update`, always fix vendor permissions if section sites show 500 errors.
+
+## Installed Modules (key ones)
+- `webform`, `webform_ui`, `captcha`, `turnstile` — contact forms on all sites
+- `eu_cookie_compliance` — cookie banner
+- `externalauth`, `openid_connect`, `satellite_user`, `satellite_api` — ESN accounts
+- `pathauto`, `token` — URL aliases
+- `paragraphs` — page content structure
+- Radix 5.0.12 (theme, must stay at 5.x)
+- Satellite profile 5.1.1
+
+## Known Issues & Fixes
+
+**After composer update → section sites return 500:**
+```bash
+# Fix vendor permissions
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type f -exec chmod o+r {} \;
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type d -exec chmod o+rx {} \;
+# Clear caches on all sections
+for DOMAIN in new-bme.esn.hu new-corvinus.esn.hu new-debrecen.esn.hu new-elte.esn.hu new-eszterhazy.esn.hu new-ibs.esn.hu mate.esn.hu new-miskolc.esn.hu new-obuda.esn.hu new-pecs.esn.hu semmelweis.esn.hu new-szeged.esn.hu lups.esn.hu; do
+  vendor/bin/drush --uri=https://$DOMAIN cr
+done
+```
+
+**Radix accidentally upgraded to 6.x → 503 on all pages:**
+```bash
+rm -rf web/themes/contrib/radix
+composer require "drupal/radix:^5.0"
+vendor/bin/drush --uri=https://new-hungary.esn.hu cr
+```
+
+**"core.services.yml is not valid" → 500/503:**
+```bash
+composer reinstall drupal/core-recommended
+vendor/bin/drush --uri=https://new-hungary.esn.hu cr
+```
+
+**"@radix/form/input.twig is not defined" → 503:**
+Radix is on v6. See Radix fix above.
+
+**Webform module error (ArgumentCountError or ServiceNotFoundException):**
+```bash
+composer update drupal/webform
+vendor/bin/drush --uri=https://new-hungary.esn.hu updatedb --yes
+vendor/bin/drush --uri=https://new-hungary.esn.hu cr
+# Then fix vendor permissions for section sites
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type f -exec chmod o+r {} \;
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type d -exec chmod o+rx {} \;
+```
+
+**Missing module in DB after composer update:**
+```bash
+vendor/bin/drush --uri=https://new-hungary.esn.hu php:eval "
+\Drupal::configFactory()->getEditable('core.extension')
+  ->clear('module.MODULE_NAME')
+  ->save();
+echo 'Done';
+"
+```
+
+**Settings.php not updating after scaffold:**
+```bash
+sudo chmod u+w /home/esn-hungary/htdocs/new-hungary.esn.hu/web/sites/DOMAIN/settings.php
+composer drupal:scaffold
+vendor/bin/drush --uri=https://DOMAIN cr
+```
+
+**Section site nginx pointing to wrong root:**
+```bash
+sudo sed -i 's|root .*;|root /home/esn-hungary/htdocs/new-hungary.esn.hu/web;|' \
+  /etc/nginx/sites-enabled/DOMAIN.conf
+sudo systemctl reload nginx
+```
+
+**Full HTML pages losing CSS:**
+```bash
+vendor/bin/drush --uri=https://DOMAIN php:eval "
+\$format = \Drupal\filter\Entity\FilterFormat::load('full_html');
+\$format->filters('filter_html')->setConfiguration(['status' => FALSE]);
+\$format->save();
+echo 'Done';
+"
+```
+
+## Useful Quick Commands
+
+```bash
+# Log in for Drupal/composer work
+ssh webmaster@YOUR_AZURE_IP
+sudo su - esn-hungary
+cd /home/esn-hungary/htdocs/new-hungary.esn.hu
+
+# Check all 14 sites
+for DOMAIN in new-hungary.esn.hu new-bme.esn.hu new-corvinus.esn.hu new-debrecen.esn.hu new-elte.esn.hu new-eszterhazy.esn.hu new-ibs.esn.hu mate.esn.hu new-miskolc.esn.hu new-obuda.esn.hu new-pecs.esn.hu semmelweis.esn.hu new-szeged.esn.hu lups.esn.hu; do
+  echo -n "$DOMAIN → "
+  curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN"
+  echo ""
+done
+
+# Clear cache on one site
+vendor/bin/drush --uri=https://DOMAIN cr
+
+# Clear cache on all sites
+for DOMAIN in new-hungary.esn.hu new-bme.esn.hu new-corvinus.esn.hu new-debrecen.esn.hu new-elte.esn.hu new-eszterhazy.esn.hu new-ibs.esn.hu mate.esn.hu new-miskolc.esn.hu new-obuda.esn.hu new-pecs.esn.hu semmelweis.esn.hu new-szeged.esn.hu lups.esn.hu; do
+  vendor/bin/drush --uri=https://$DOMAIN cr
+done
+
+# Delete compiled cache manually
+rm -rf web/sites/DOMAIN/files/php
+
+# Check PHP error log for a site
+sudo tail -20 /home/esn-hungary/logs/php/error.log
+sudo tail -20 /home/esn-mate/logs/php/error.log   # replace esn-mate with the site's CloudPanel user
+
+# Check nginx error log
+sudo tail -20 /var/log/nginx/error.log
+
+# Update safely
+composer update
+for DOMAIN in new-hungary.esn.hu new-bme.esn.hu new-corvinus.esn.hu new-debrecen.esn.hu new-elte.esn.hu new-eszterhazy.esn.hu new-ibs.esn.hu mate.esn.hu new-miskolc.esn.hu new-obuda.esn.hu new-pecs.esn.hu semmelweis.esn.hu new-szeged.esn.hu lups.esn.hu; do
+  vendor/bin/drush --uri=https://$DOMAIN updatedb --yes
+  vendor/bin/drush --uri=https://$DOMAIN cr
+done
+# Always fix vendor permissions after update:
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type f -exec chmod o+r {} \;
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type d -exec chmod o+rx {} \;
+
+# Reset admin password
+vendor/bin/drush --uri=https://DOMAIN user:password ADMIN_USERNAME 'NEW_PASSWORD'
+
+# Generate one-time login link
+vendor/bin/drush --uri=https://DOMAIN uli --name=ADMIN_USERNAME
+```
+
+---
+
+My current issue is: [DESCRIBE YOUR ERROR HERE — paste any error messages or HTTP status codes you are seeing]
