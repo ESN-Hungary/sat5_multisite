@@ -21,6 +21,10 @@ cd /home/esn-hungary/htdocs/new-hungary.esn.hu
 From here, commands like `composer update` and `vendor/bin/drush ...` work directly without any prefix.
 
 For system-level tasks (nginx, PHP-FPM, MySQL, file permissions) you need to be `webmaster` with sudo. Exit the esn-hungary session first:
+If there is an error with the update well ask it to the ai (not chatgpt claude is good) but try this too
+
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type f -exec chmod o+r {} \;
+find /home/esn-hungary/htdocs/new-hungary.esn.hu/vendor -type d -exec chmod o+rx {} \;
 
 ```bash
 exit   # back to webmaster
