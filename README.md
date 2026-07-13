@@ -335,10 +335,41 @@ sudo nano /home/esn-hungary/htdocs/new-hungary.esn.hu/scaffold/mate.settings.php
 sudo -u esn-hungary bash -c 'cd /home/esn-hungary/htdocs/new-hungary.esn.hu && composer drupal:scaffold'
 ```
 
+### Updating a site's settings.php (scaffold)
+
+Site directories under `web/sites/*` are locked to `555` (read+execute
+only) as a hardening measure. This means `composer drupal:scaffold`
+can't delete and recreate `settings.php` unless the *directory* itself
+is temporarily unlocked — `chmod u+w` on the file alone is not enough.
+
+For a single site (example: `mate.esn.hu`):
+
+```bash
+# 1. Unlock the site directory (not just the file)
+sudo chmod u+w /home/esn-hungary/htdocs/new-hungary.esn.hu/web/sites/mate.esn.hu/
+
+# 2. Edit the scaffold source, then run scaffold as esn-hungary
+sudo -u esn-hungary bash -c 'cd /home/esn-hungary/htdocs/new-hungary.esn.hu && composer drupal:scaffold'
+
+# 3. Re-lock the directory back to 555
+sudo chmod u-w /home/esn-hungary/htdocs/new-hungary.esn.hu/web/sites/mate.esn.hu/
+```
+
 Then clear cache (as esn-hungary):
 ```bash
 vendor/bin/drush --uri=https://mate.esn.hu cr
 ```
+
+**Note:** `composer drupal:scaffold` scaffolds *all 14 sites* in one
+run, not just the one being edited — so if any other site's directory
+is still locked, the whole command fails partway through with a
+`Could not delete settings.php` error, even if the site you're
+actually working on is fine.
+
+For routine work, use `run-scaffold.sh` instead of doing this by hand.
+It unlocks all 14 site directories, runs scaffold as `esn-hungary`,
+fixes vendor/ permissions, clears cache on all sites, and re-locks
+every directory afterward — even if a step fails partway through.
 
 ### 5.6 Section Content
 
